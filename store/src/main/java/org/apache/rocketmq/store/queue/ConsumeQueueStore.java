@@ -415,7 +415,8 @@ public class ConsumeQueueStore {
     public void recoverOffsetTable(long minPhyOffset) {
         ConcurrentMap<String, Long> cqOffsetTable = new ConcurrentHashMap<>(1024);
         ConcurrentMap<String, Long> bcqOffsetTable = new ConcurrentHashMap<>(1024);
-
+        // 恢复ConsumeQueue文件后，将在CommitLog实例中保存每个消息消费队列当前的存储逻辑偏移量，
+        // 这也是消息中不仅存储主题、消息队列ID还存储了消息队列偏移量的关键所在。
         for (ConcurrentMap<Integer, ConsumeQueueInterface> maps : this.consumeQueueTable.values()) {
             for (ConsumeQueueInterface logic : maps.values()) {
                 String key = logic.getTopic() + "-" + logic.getQueueId();

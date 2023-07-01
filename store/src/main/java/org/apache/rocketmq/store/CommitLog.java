@@ -299,6 +299,7 @@ public class CommitLog implements Swappable {
 
     /**
      * When the normal exit, data recovery, all memory data have been flush
+     * Broker 正常退出重启时文件恢复逻辑
      */
     public void recoverNormally(long maxPhyOffsetOfConsumeQueue) {
         boolean checkCRCOnRecover = this.defaultMessageStore.getMessageStoreConfig().isCheckCRCOnRecover();
@@ -306,19 +307,28 @@ public class CommitLog implements Swappable {
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
             // Began to recover from the last third file
+            // 从倒数第三个文件开始进行恢复，如果不足3个文件，则从第一个文件开始恢复
+            // 这里是CommitLog 文件加载到内存中，一个CommitLog 文件1G， 如果全部恢复太大了 这里三个文件是经验之谈
+            // 如果一个一个mq集群的不同消费者组，消费进度相差3个G，那得是多少消息。
             int index = mappedFiles.size() - 3;
             if (index < 0) {
                 index = 0;
             }
 
             MappedFile mappedFile = mappedFiles.get(index);
+            // byteBuffer与mappedFile内部的mappedByteBuffer是同一份内存，只是独立维护了读指针
             ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
+            // 已确认的物理偏移量，即当前文件起始偏移量
             long processOffset = mappedFile.getFileFromOffset();
+            // 当前文件已经校验通过的offset
             long mappedFileOffset = 0;
             long lastValidMsgPhyOffset = this.getConfirmOffset();
             // normal recover doesn't require dispatching
             boolean doDispatch = false;
             while (true) {
+                // 遍历Commit log文件，每次取出一条消息，如果查找结果为true并且消息长度大于0表示消息正确，mappedFileOffset指针向前移动本条消息的长度
+                // 如果查找结果为true并且消息的长度等于0，表示已到该文件的末尾，如果还有下一个文件，则重置processOffset、mappedFileOffset，再来一遍
+                // 如果查找结构为false，表明该文件未填满所有消息，跳出循环，结束遍历文件
                 DispatchRequest dispatchRequest = this.checkMessageAndReturnSize(byteBuffer, checkCRCOnRecover, checkDupInfo);
                 int size = dispatchRequest.getMsgSize();
                 // Normal data
@@ -338,6 +348,7 @@ public class CommitLog implements Swappable {
                         log.info("recover last 3 physics file over, last mapped file " + mappedFile.getFileName());
                         break;
                     } else {
+                        // 走到这里说明上一个文件已经读完
                         mappedFile = mappedFiles.get(index);
                         byteBuffer = mappedFile.sliceByteBuffer();
                         processOffset = mappedFile.getFileFromOffset();
@@ -355,6 +366,7 @@ public class CommitLog implements Swappable {
                 }
             }
 
+            // 更新MappedFileQueue的flushedWhere与commiteedWhere指针
             processOffset += mappedFileOffset;
 
             if (this.defaultMessageStore.getBrokerConfig().isEnableControllerMode()) {
@@ -637,6 +649,7 @@ public class CommitLog implements Swappable {
             int index = mappedFiles.size() - 1;
             MappedFile mappedFile = null;
             for (; index >= 0; index--) {
+                // 遍历MappedFile中的消息，验证消息的合法性，并将消息重新转发到消息消费队列与索引文件。
                 mappedFile = mappedFiles.get(index);
                 if (this.isMappedFileMatchedRecover(mappedFile)) {
                     log.info("recover from this mapped file " + mappedFile.getFileName());
@@ -729,6 +742,7 @@ public class CommitLog implements Swappable {
         }
         // Commitlog case files are deleted
         else {
+            // 如果未找到有效MappedFile，则设置commitlog目录的flushedWhere、committed-Where指针都为0，并销毁消息消费队列文件
             log.warn("The commitlog files are deleted, and delete the consume queue files");
             this.mappedFileQueue.setFlushedWhere(0);
             this.mappedFileQueue.setCommittedWhere(0);
@@ -757,7 +771,7 @@ public class CommitLog implements Swappable {
 
     private boolean isMappedFileMatchedRecover(final MappedFile mappedFile) {
         ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
-
+        // 首先判断文件的魔数，如果不是MESSAGE_MAGIC_CODE，返回false，表示该文件不符合commitlog消息文件的存储格式
         int magicCode = byteBuffer.getInt(MessageDecoder.MESSAGE_MAGIC_CODE_POSITION);
         if (magicCode != MessageDecoder.MESSAGE_MAGIC_CODE && magicCode != MessageDecoder.MESSAGE_MAGIC_CODE_V2) {
             return false;
@@ -766,13 +780,17 @@ public class CommitLog implements Swappable {
         int sysFlag = byteBuffer.getInt(MessageDecoder.SYSFLAG_POSITION);
         int bornhostLength = (sysFlag & MessageSysFlag.BORNHOST_V6_FLAG) == 0 ? 8 : 20;
         int msgStoreTimePos = 4 + 4 + 4 + 4 + 4 + 8 + 8 + 4 + 8 + bornhostLength;
+        // 如果文件中第一条消息的存储时间等于0，返回false，说明该消息存储文件中未存储任何消息
         long storeTimestamp = byteBuffer.getLong(msgStoreTimePos);
         if (0 == storeTimestamp) {
             return false;
         }
-
+        // 对比文件第一条消息的时间戳与检测点，文件第一条消息的时间戳小于文件检测点说明该文件部分消息是可靠的，则从该文件开始恢复。
+        // 文件检测点中保存了Commit log文件、消息消费队列（ConsumeQueue）、索引文件（IndexFile）的文件刷盘点，
+        // RocketMQ默认选择这消息文件与消息消费队列这两个文件的时间刷盘点中最小值与消息文件第一消息的时间戳对比，如果messageIndexEnable为true，表示索引文件的刷盘时间点也参与计算
         if (this.defaultMessageStore.getMessageStoreConfig().isMessageIndexEnable()
             && this.defaultMessageStore.getMessageStoreConfig().isMessageIndexSafe()) {
+            // 文件第一条消息的时间戳小于文件检测点 说明commit log已经落盘
             if (storeTimestamp <= this.defaultMessageStore.getStoreCheckpoint().getMinTimestampIndex()) {
                 log.info("find check timestamp, {} {}",
                     storeTimestamp,

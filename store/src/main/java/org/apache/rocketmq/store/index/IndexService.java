@@ -58,6 +58,7 @@ public class IndexService {
     public boolean load(final boolean lastExitOK) {
         File dir = new File(this.storePath);
         File[] files = dir.listFiles();
+        // 这里是索引文件
         if (files != null) {
             // ascending order
             Arrays.sort(files);
@@ -67,6 +68,8 @@ public class IndexService {
                     f.load();
 
                     if (!lastExitOK) {
+                        // 如果上次异常退出，并且索引文件上次刷盘时间小于该文件最大消息时间戳该文件立即销毁
+                        // 因为checkPoint时间小于索引文件上次刷盘时间，说明commit log没有落盘，所以光有索引文件也是没用
                         if (f.getEndTimestamp() > this.defaultMessageStore.getStoreCheckpoint()
                             .getIndexMsgTimestamp()) {
                             f.destroy(0);
@@ -208,6 +211,8 @@ public class IndexService {
     }
 
     public void buildIndex(DispatchRequest req) {
+        // 获取或创建IndexFile文件并获取所有文件最大的物理偏移量。
+        // 如果该消息的物理偏移量小于索引文件中的物理偏移，则说明是重复数据，忽略本次索引构建。
         IndexFile indexFile = retryGetAndCreateIndexFile();
         if (indexFile != null) {
             long endPhyOffset = indexFile.getEndPhyOffset();
@@ -229,6 +234,7 @@ public class IndexService {
             }
 
             if (req.getUniqKey() != null) {
+                // 如果消息的唯一键不为空，则添加到Hash索引中，以便加速根据唯一键检索消息。
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
                 if (indexFile == null) {
                     LOGGER.error("putKey error commitlog {} uniqkey {}", req.getCommitLogOffset(), req.getUniqKey());

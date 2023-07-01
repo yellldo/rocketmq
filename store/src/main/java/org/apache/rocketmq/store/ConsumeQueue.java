@@ -883,7 +883,8 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
             log.warn("Maybe try to build consume queue repeatedly maxPhysicOffset={} phyOffset={}", maxPhysicOffset, offset);
             return true;
         }
-
+        // 将消息偏移量、消息长度、tag hashcode写入到byteBuffer，然后根据consumeQueueOffset计算ConsumeQueue中的物理地址，
+        // 将内容追加到ConsumeQueue的内存映射文件中（本操作只追击并不刷盘）, ConsumeQueue的刷盘方式固定为异步刷盘模式。
         this.byteBufferIndex.flip();
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
         this.byteBufferIndex.putLong(offset);

@@ -114,9 +114,10 @@ public class DefaultMessageStore implements MessageStore {
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
     public final PerfCounter.Ticks perfs = new PerfCounter.Ticks(LOGGER);
-
+    // 消息存储配置属性
     private final MessageStoreConfig messageStoreConfig;
     // CommitLog
+    // CommitLog文件的存储实现类
     private final CommitLog commitLog;
 
     private final ConsumeQueueStore consumeQueueStore;
@@ -316,6 +317,7 @@ public class DefaultMessageStore implements MessageStore {
         boolean result = true;
 
         try {
+            // 通过abort文件是否存在，判断是否正常退出
             boolean lastExitOK = !this.isTempFileExist();
             LOGGER.info("last shutdown {}, store path root dir: {}",
                 lastExitOK ? "normally" : "abnormally", messageStoreConfig.getStorePathRootDir());
@@ -382,7 +384,7 @@ public class DefaultMessageStore implements MessageStore {
 
         lockFile.getChannel().write(ByteBuffer.wrap("lock".getBytes(StandardCharsets.UTF_8)));
         lockFile.getChannel().force(true);
-
+        // 启动一个reputMessageService线程，从某个偏移量开始转发给ConsumeQueue和IndexFile。
         this.reputMessageService.setReputFromOffset(this.commitLog.getConfirmOffset());
         this.reputMessageService.start();
 
@@ -1858,6 +1860,7 @@ public class DefaultMessageStore implements MessageStore {
         long recoverConsumeQueueEnd = System.currentTimeMillis();
 
         // recover commitlog
+        // 根据是否正常退出，执行不同的逻辑
         if (lastExitOK) {
             this.commitLog.recoverNormally(maxPhyOffsetOfConsumeQueue);
         } else {
