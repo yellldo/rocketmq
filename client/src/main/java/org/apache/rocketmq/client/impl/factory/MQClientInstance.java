@@ -481,6 +481,7 @@ public class MQClientInstance {
     public void sendHeartbeatToAllBrokerWithLock() {
         if (this.lockHeartbeat.tryLock()) {
             try {
+                // 向所有broker 发送心跳
                 if (clientConfig.isUseHeartbeatV2()) {
                     this.sendHeartbeatToAllBrokerV2(false);
                 } else {
