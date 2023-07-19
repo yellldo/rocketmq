@@ -95,8 +95,10 @@ public class PullMessageService extends ServiceThread {
     }
 
     private void pullMessage(final PullRequest pullRequest) {
+        // 消费者内部接口 通过pullRequest获取消费者
         final MQConsumerInner consumer = this.mQClientFactory.selectConsumer(pullRequest.getConsumerGroup());
         if (consumer != null) {
+            // 强转成DefaultMQPushConsumerImpl 意味着该线程只为PUSH模式服务
             DefaultMQPushConsumerImpl impl = (DefaultMQPushConsumerImpl) consumer;
             impl.pullMessage(pullRequest);
         } else {
@@ -118,6 +120,7 @@ public class PullMessageService extends ServiceThread {
     public void run() {
         logger.info(this.getServiceName() + " service started");
 
+        // stopped 是volatile
         while (!this.isStopped()) {
             try {
                 MessageRequest messageRequest = this.messageRequestQueue.take();

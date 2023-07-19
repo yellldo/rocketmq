@@ -309,6 +309,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
         LOGGER.debug("receive PullMessage request command, {}", request);
 
+        // 是否有读的权限
         if (!PermName.isReadable(this.brokerController.getBrokerConfig().getBrokerPermission())) {
             response.setCode(ResponseCode.NO_PERMISSION);
             responseHeader.setForbiddenType(ForbiddenType.BROKER_FORBIDDEN);
@@ -317,6 +318,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // 根据消息拉取命令Code:RequestCode.PULL_MESSAGE
         if (request.getCode() == RequestCode.LITE_PULL_MESSAGE && !this.brokerController.getBrokerConfig().isLitePullMessageEnable()) {
             response.setCode(ResponseCode.NO_PERMISSION);
             responseHeader.setForbiddenType(ForbiddenType.BROKER_FORBIDDEN);
@@ -485,6 +487,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             messageFilter = new ExpressionMessageFilter(subscriptionData, consumerFilterData,
                 this.brokerController.getConsumerFilterManager());
         }
+
 
         final MessageStore messageStore = brokerController.getMessageStore();
         if (this.brokerController.getMessageStore() instanceof DefaultMessageStore) {

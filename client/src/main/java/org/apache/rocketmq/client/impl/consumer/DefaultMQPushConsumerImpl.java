@@ -243,33 +243,43 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     }
 
     public void pullMessage(final PullRequest pullRequest) {
+        // 从PullRequest中获取ProcessQueue 待消费的消息
         final ProcessQueue processQueue = pullRequest.getProcessQueue();
         if (processQueue.isDropped()) {
             log.info("the pull request[{}] is dropped.", pullRequest.toString());
             return;
         }
-
+        // 如果处理队列当前状态未被丢弃，则更新ProcessQueue的lastPullTimestamp为当前时间戳
         pullRequest.getProcessQueue().setLastPullTimestamp(System.currentTimeMillis());
 
         try {
+            // 检查当前消费者状态
             this.makeSureStateOK();
         } catch (MQClientException e) {
             log.warn("pullMessage exception, consumer state not ok", e);
+            // 如果当前消费者状态非运行状态，就将拉取任务延时3s再次放入PullMessageService的拉取任务中，结束本次消息拉取。
             this.executePullRequestLater(pullRequest, pullTimeDelayMillsWhenException);
             return;
         }
 
         if (this.isPause()) {
             log.warn("consumer was paused, execute pull request later. instanceName={}, group={}", this.defaultMQPushConsumer.getInstanceName(), this.defaultMQPushConsumer.getConsumerGroup());
+            // 如果当前消费者被挂起，就将拉取任务延时1s再次放入PullMessageService的拉取任务中，结束本次消息拉取。
             this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_SUSPEND);
             return;
         }
 
+        // 消息流控逻辑，目的：避免底层资源承受过高压力，
+
+        // 消息处理总数
         long cachedMessageCount = processQueue.getMsgCount().get();
         long cachedMessageSizeInMiB = processQueue.getMsgSize().get() / (1024 * 1024);
 
+        // 消息处理总数超过pullThreshold For-Queue(1000)，就触发流控，然后放弃本次拉取
         if (cachedMessageCount > this.defaultMQPushConsumer.getPullThresholdForQueue()) {
+            // 该队列的下一次拉取任务将在50毫秒后才加入到拉取任务队列中 拉取任务默认会拉取32条
             this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_CACHE_FLOW_CONTROL);
+            // 每触发1000次流控，就提示一次
             if ((queueFlowControlTimes++ % 1000) == 0) {
                 log.warn(
                     "the cached message count exceeds the threshold {}, so do flow control, minOffset={}, maxOffset={}, count={}, size={} MiB, pullRequest={}, flowControlTimes={}",
@@ -278,8 +288,11 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             return;
         }
 
+        // 消息大小超过100M（默认），触发流控，然后放弃本次拉取
         if (cachedMessageSizeInMiB > this.defaultMQPushConsumer.getPullThresholdSizeForQueue()) {
+            // 该队列的下一次拉取任务将在50毫秒后才加入到拉取任务队列中，
             this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_CACHE_FLOW_CONTROL);
+            // 每触发1000次流控，就提示一次
             if ((queueFlowControlTimes++ % 1000) == 0) {
                 log.warn(
                     "the cached message size exceeds the threshold {} MiB, so do flow control, minOffset={}, maxOffset={}, count={}, size={} MiB, pullRequest={}, flowControlTimes={}",
@@ -288,7 +301,10 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             return;
         }
 
+        // 是否循序消费
         if (!this.consumeOrderly) {
+            // 判断ProcessQueue中队列最大偏移量与最小偏移量的间距 超过consume Concurrently-MaxSpan，超过则触发流控
+            // 这里主要的考量是担心一条消息堵塞，消息进度无法向前推进，可能造成大量消息重复消费
             if (processQueue.getMaxSpan() > this.defaultMQPushConsumer.getConsumeConcurrentlyMaxSpan()) {
                 this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_CACHE_FLOW_CONTROL);
                 if ((queueMaxSpanFlowControlTimes++ % 1000) == 0) {
@@ -331,8 +347,12 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             }
         }
 
+        // 消息流控逻辑结束
+
+        // 拉取该主题订阅信息
         final SubscriptionData subscriptionData = this.rebalanceImpl.getSubscriptionInner().get(pullRequest.getMessageQueue().getTopic());
         if (null == subscriptionData) {
+            // 如果为空，结束本次消息拉取，关于该队列的下一次拉取任务延迟3s。
             this.executePullRequestLater(pullRequest, pullTimeDelayMillsWhenException);
             log.warn("find the consumer's subscription failed, {}", pullRequest);
             return;
@@ -442,6 +462,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             }
         };
 
+        //
         boolean commitOffsetEnable = false;
         long commitOffsetValue = 0L;
         if (MessageModel.CLUSTERING == this.defaultMQPushConsumer.getMessageModel()) {

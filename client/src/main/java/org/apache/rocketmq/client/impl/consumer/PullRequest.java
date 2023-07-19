@@ -20,10 +20,15 @@ import org.apache.rocketmq.common.message.MessageQueue;
 import org.apache.rocketmq.common.message.MessageRequestMode;
 
 public class PullRequest implements MessageRequest {
+    // 消费者组
     private String consumerGroup;
+    // 待拉取的消息队列
     private MessageQueue messageQueue;
+    // 消息处理队列 从Broker拉取到的消息先存入ProcessQueue，然后再提交到消费者消费线程池消费
     private ProcessQueue processQueue;
+    // 下一个偏移量 待拉取的消息偏移量
     private long nextOffset;
+    // 是否被锁定
     private boolean previouslyLocked = false;
 
     public boolean isPreviouslyLocked() {

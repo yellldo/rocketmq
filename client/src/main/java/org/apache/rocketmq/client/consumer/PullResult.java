@@ -24,6 +24,7 @@ public class PullResult {
     private final long nextBeginOffset;
     private final long minOffset;
     private final long maxOffset;
+    // 消息集合
     private List<MessageExt> msgFoundList;
 
 
