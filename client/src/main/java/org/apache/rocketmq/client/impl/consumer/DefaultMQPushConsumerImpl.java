@@ -290,7 +290,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
         // 消息大小超过100M（默认），触发流控，然后放弃本次拉取
         if (cachedMessageSizeInMiB > this.defaultMQPushConsumer.getPullThresholdSizeForQueue()) {
-            // 该队列的下一次拉取任务将在50毫秒后才加入到拉取任务队列中，
+            // 该队列的下一次拉取任务将在50毫秒后才加入到拉取任务队列中，参数还是PullRequest
             this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_CACHE_FLOW_CONTROL);
             // 每触发1000次流控，就提示一次
             if ((queueFlowControlTimes++ % 1000) == 0) {
@@ -306,6 +306,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             // 判断ProcessQueue中队列最大偏移量与最小偏移量的间距 超过consume Concurrently-MaxSpan，超过则触发流控
             // 这里主要的考量是担心一条消息堵塞，消息进度无法向前推进，可能造成大量消息重复消费
             if (processQueue.getMaxSpan() > this.defaultMQPushConsumer.getConsumeConcurrentlyMaxSpan()) {
+                // 该队列的下一次拉取任务将在50毫秒后才加入到拉取任务队列中，参数还是PullRequest
                 this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_CACHE_FLOW_CONTROL);
                 if ((queueMaxSpanFlowControlTimes++ % 1000) == 0) {
                     log.warn(
